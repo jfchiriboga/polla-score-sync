@@ -16,14 +16,14 @@ const GROUPS = {
   L: ['England', 'Croatia', 'Ghana', 'Panama'],
 };
 
-// Build lookup: "TeamA|TeamB" -> "g_X_N"
+// Build lookup: "TeamA|TeamB" -> { key, homeIsFirst }
 const PAIRS = [[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]];
 const LOOKUP = {};
 for (const [g, teams] of Object.entries(GROUPS)) {
   PAIRS.forEach(([a, b], mi) => {
     const key = `g_${g}_${mi}`;
-    LOOKUP[`${teams[a]}|${teams[b]}`] = key;
-    LOOKUP[`${teams[b]}|${teams[a]}`] = key;
+    LOOKUP[`${teams[a]}|${teams[b]}`] = { key, homeIsFirst: true };
+    LOOKUP[`${teams[b]}|${teams[a]}`] = { key, homeIsFirst: false };
   });
 }
 
@@ -66,9 +66,13 @@ async function syncScores(matches, firebaseUrl) {
     const s1 = match.score?.fullTime?.home;
     const s2 = match.score?.fullTime?.away;
     if (!home || !away || s1 === null || s1 === undefined) { skipped++; continue; }
-    const key = getFirebaseKey(home, away);
-    if (!key) { console.log(`No key for: ${home} vs ${away}`); skipped++; continue; }
-    updates[key] = { s1, s2 };
+    const match_info = getFirebaseKey(home, away);
+    if (!match_info) { console.log(`No key for: ${home} vs ${away}`); skipped++; continue; }
+    const { key, homeIsFirst } = match_info;
+    // s1 is always the first team in our app's definition
+    // homeIsFirst=true: API home=our team1, so s1=home score, s2=away score
+    // homeIsFirst=false: API home=our team2, so s1=away score, s2=home score
+    updates[key] = homeIsFirst ? { s1, s2 } : { s1: s2, s2: s1 };
     mapped++;
   }
 
