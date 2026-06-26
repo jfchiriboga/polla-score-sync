@@ -1,0 +1,12 @@
+{
+  "name": "polla-score-sync",
+  "version": "1.0.0",
+  "description": "Syncs World Cup 2026 scores from football-data.org to Firebase",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
