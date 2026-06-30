@@ -16,6 +16,34 @@ const GROUPS = {
   L: ['England', 'Croatia', 'Ghana', 'Panama'],
 };
 
+// Knockout stage matches (updated as tournament progresses)
+const KO_MATCHES = [
+  // Round of 32
+  { home: 'South Africa', away: 'Canada',    key: 'r32_0' },
+  { home: 'Brazil',       away: 'Japan',     key: 'r32_1' },
+  { home: 'Germany',      away: 'Paraguay',  key: 'r32_2' },
+  { home: 'Netherlands',  away: 'Morocco',   key: 'r32_3' },
+  { home: "Côte d'Ivoire",away: 'Norway',    key: 'r32_4' },
+  { home: 'France',       away: 'Sweden',    key: 'r32_5' },
+  { home: 'Mexico',       away: 'Ecuador',   key: 'r32_6' },
+  { home: 'England',      away: 'DR Congo',  key: 'r32_7' },
+  { home: 'Belgium',      away: 'Senegal',   key: 'r32_8' },
+  { home: 'United States',away: 'Bosnia and Herzegovina', key: 'r32_9' },
+  { home: 'Spain',        away: 'Austria',   key: 'r32_10' },
+  { home: 'Switzerland',  away: 'Algeria',   key: 'r32_11' },
+  { home: 'Portugal',     away: 'Croatia',   key: 'r32_12' },
+  { home: 'Australia',    away: 'Egypt',     key: 'r32_13' },
+  { home: 'Argentina',    away: 'Cabo Verde',key: 'r32_14' },
+  { home: 'Colombia',     away: 'Ghana',     key: 'r32_15' },
+];
+
+// Build KO lookup
+const KO_LOOKUP = {};
+KO_MATCHES.forEach(m => {
+  KO_LOOKUP[`${m.home}|${m.away}`] = { key: m.key, homeIsFirst: true };
+  KO_LOOKUP[`${m.away}|${m.home}`] = { key: m.key, homeIsFirst: false };
+});
+
 // Build lookup: "TeamA|TeamB" -> { key, homeIsFirst }
 const PAIRS = [[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]];
 const LOOKUP = {};
@@ -28,7 +56,7 @@ for (const [g, teams] of Object.entries(GROUPS)) {
 }
 
 function getFirebaseKey(home, away) {
-  return LOOKUP[`${home}|${away}`] || null;
+  return LOOKUP[`${home}|${away}`] || KO_LOOKUP[`${home}|${away}`] || null;
 }
 
 function patchFirebase(data, firebaseUrl) {
