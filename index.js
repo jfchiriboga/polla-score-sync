@@ -16,9 +16,12 @@ const GROUPS = {
   L: ['England', 'Croatia', 'Ghana', 'Panama'],
 };
 
-// Knockout stage matches (updated as tournament progresses)
-const KO_MATCHES = [
-  // Round of 32
+// ── KNOCKOUT STAGE ──
+// R32 results are fixed pairings (set before tournament).
+// R16/QF/SF/Final pairings are built DYNAMICALLY from R32/R16/etc winners,
+// because the actual teams aren't known until earlier rounds finish.
+
+const R32_MATCHES = [
   { home: 'South Africa', away: 'Canada',    key: 'r32_0' },
   { home: 'Brazil',       away: 'Japan',     key: 'r32_1' },
   { home: 'Germany',      away: 'Paraguay',  key: 'r32_2' },
@@ -37,12 +40,111 @@ const KO_MATCHES = [
   { home: 'Colombia',     away: 'Ghana',     key: 'r32_15' },
 ];
 
-// Build KO lookup
+// R16 bracket structure: which R32 match indices feed each R16 match.
+// Pairing confirmed by FIFA bracket (see worldcuppass.com/CBS bracket):
+//  r16_0: winner(r32_2 Germany/Paraguay) vs winner(r32_5 France/Sweden)
+//  r16_1: winner(r32_0 SouthAfrica/Canada) vs winner(r32_3 Netherlands/Morocco)
+//  r16_2: winner(r32_1 Brazil/Japan) vs winner(r32_4 CotedIvoire/Norway)
+//  r16_3: winner(r32_6 Mexico/Ecuador) vs winner(r32_7 England/DRCongo)
+//  r16_4: winner(r32_12 Portugal/Croatia) vs winner(r32_10 Spain/Austria)
+//  r16_5: winner(r32_9 US/Bosnia) vs winner(r32_8 Belgium/Senegal)
+//  r16_6: winner(r32_14 Argentina/CaboVerde) vs winner(r32_13 Australia/Egypt)
+//  r16_7: winner(r32_11 Switzerland/Algeria) vs winner(r32_15 Colombia/Ghana)
+const R16_FEED = [
+  [2, 5], [0, 3], [1, 4], [6, 7],
+  [12, 10], [9, 8], [14, 13], [11, 15],
+];
+
+// QF bracket: which R16 match indices feed each QF
+const QF_FEED = [[0,1],[2,3],[4,5],[6,7]];
+
+// SF bracket: which QF match indices feed each SF
+const SF_FEED = [[0,1],[2,3]];
+
+// Build R32 lookup (fixed)
 const KO_LOOKUP = {};
-KO_MATCHES.forEach(m => {
+R32_MATCHES.forEach(m => {
   KO_LOOKUP[`${m.home}|${m.away}`] = { key: m.key, homeIsFirst: true };
   KO_LOOKUP[`${m.away}|${m.home}`] = { key: m.key, homeIsFirst: false };
 });
+
+// Resolve a team name from an R32-style match given current realScores + team names
+function winnerOf(matchKey, homeTeam, awayTeam, realScores) {
+  const rs = realScores[matchKey];
+  if (!rs || rs.s1 === undefined || rs.s2 === undefined) return null;
+  return rs.s1 > rs.s2 ? homeTeam : awayTeam;
+}
+
+// Given current realScores AND the list of all matches fetched from the API
+// (to resolve team names for R32), dynamically build R16/QF/SF/Final lookups.
+function buildDynamicLookups(realScores) {
+  // First resolve R32 winners by team name
+  const r32Winners = R32_MATCHES.map(m => {
+    const rs = realScores[m.key];
+    if (!rs || rs.s1 === undefined || rs.s2 === undefined) return null;
+    return rs.s1 > rs.s2 ? m.home : m.away;
+  });
+
+  const lookup = {};
+
+  // R16
+  const r16Winners = R16_FEED.map((pair, idx) => {
+    const t1 = r32Winners[pair[0]];
+    const t2 = r32Winners[pair[1]];
+    if (!t1 || !t2) return null;
+    const key = `r16_${idx}`;
+    lookup[`${t1}|${t2}`] = { key, homeIsFirst: true };
+    lookup[`${t2}|${t1}`] = { key, homeIsFirst: false };
+    const rs = realScores[key];
+    if (!rs || rs.s1 === undefined) return null;
+    return rs.s1 > rs.s2 ? t1 : t2;
+  });
+
+  // QF
+  const qfWinners = QF_FEED.map((pair, idx) => {
+    const t1 = r16Winners[pair[0]];
+    const t2 = r16Winners[pair[1]];
+    if (!t1 || !t2) return null;
+    const key = `qf_${idx}`;
+    lookup[`${t1}|${t2}`] = { key, homeIsFirst: true };
+    lookup[`${t2}|${t1}`] = { key, homeIsFirst: false };
+    const rs = realScores[key];
+    if (!rs || rs.s1 === undefined) return null;
+    return rs.s1 > rs.s2 ? t1 : t2;
+  });
+
+  // SF
+  const sfWinners = SF_FEED.map((pair, idx) => {
+    const t1 = qfWinners[pair[0]];
+    const t2 = qfWinners[pair[1]];
+    if (!t1 || !t2) return null;
+    const key = `sf_${idx}`;
+    lookup[`${t1}|${t2}`] = { key, homeIsFirst: true };
+    lookup[`${t2}|${t1}`] = { key, homeIsFirst: false };
+    const rs = realScores[key];
+    if (!rs || rs.s1 === undefined) return null;
+    return rs.s1 > rs.s2 ? t1 : t2;
+  });
+
+  // Final + 3rd place
+  if (sfWinners[0] && sfWinners[1]) {
+    lookup[`${sfWinners[0]}|${sfWinners[1]}`] = { key: 'final_0', homeIsFirst: true };
+    lookup[`${sfWinners[1]}|${sfWinners[0]}`] = { key: 'final_0', homeIsFirst: false };
+  }
+  // 3rd place: losers of SF
+  const sfLosers = SF_FEED.map((pair, idx) => {
+    const t1 = qfWinners[pair[0]], t2 = qfWinners[pair[1]];
+    const rs = realScores[`sf_${idx}`];
+    if (!t1 || !t2 || !rs || rs.s1 === undefined) return null;
+    return rs.s1 > rs.s2 ? t2 : t1; // loser
+  });
+  if (sfLosers[0] && sfLosers[1]) {
+    lookup[`${sfLosers[0]}|${sfLosers[1]}`] = { key: '3rd_0', homeIsFirst: true };
+    lookup[`${sfLosers[1]}|${sfLosers[0]}`] = { key: '3rd_0', homeIsFirst: false };
+  }
+
+  return lookup;
+}
 
 // Build lookup: "TeamA|TeamB" -> { key, homeIsFirst }
 const PAIRS = [[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]];
@@ -55,8 +157,25 @@ for (const [g, teams] of Object.entries(GROUPS)) {
   });
 }
 
-function getFirebaseKey(home, away) {
-  return LOOKUP[`${home}|${away}`] || KO_LOOKUP[`${home}|${away}`] || null;
+function getFirebaseKey(home, away, dynamicLookup) {
+  return LOOKUP[`${home}|${away}`]
+    || KO_LOOKUP[`${home}|${away}`]
+    || (dynamicLookup && dynamicLookup[`${home}|${away}`])
+    || null;
+}
+
+function getFirebase(firebaseBaseUrl) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(firebaseBaseUrl);
+    https.get(url, res => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try { resolve(JSON.parse(data) || {}); }
+        catch (e) { resolve({}); }
+      });
+    }).on('error', reject);
+  });
 }
 
 function patchFirebase(data, firebaseUrl) {
@@ -84,6 +203,10 @@ function patchFirebase(data, firebaseUrl) {
 }
 
 async function syncScores(matches, firebaseUrl) {
+  // First, fetch current realScores so we can resolve R16/QF/SF/Final pairings dynamically
+  const currentScores = await getFirebase(firebaseUrl);
+  const dynamicLookup = buildDynamicLookups(currentScores);
+
   const updates = {};
   let mapped = 0, skipped = 0;
 
@@ -94,12 +217,9 @@ async function syncScores(matches, firebaseUrl) {
     const s1 = match.score?.fullTime?.home;
     const s2 = match.score?.fullTime?.away;
     if (!home || !away || s1 === null || s1 === undefined) { skipped++; continue; }
-    const match_info = getFirebaseKey(home, away);
+    const match_info = getFirebaseKey(home, away, dynamicLookup);
     if (!match_info) { console.log(`No key for: ${home} vs ${away}`); skipped++; continue; }
     const { key, homeIsFirst } = match_info;
-    // s1 is always the first team in our app's definition
-    // homeIsFirst=true: API home=our team1, so s1=home score, s2=away score
-    // homeIsFirst=false: API home=our team2, so s1=away score, s2=home score
     updates[key] = homeIsFirst ? { s1, s2 } : { s1: s2, s2: s1 };
     mapped++;
   }
